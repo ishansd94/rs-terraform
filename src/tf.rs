@@ -2,7 +2,8 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::env::args;
 use std::fs;
-use std::process::{Command, Output};
+use std::process::{Command, exit, Output};
+use log::{error, info, warn};
 use serde_json::{json, to_string, Value};
 use uuid::Uuid;
 
@@ -41,11 +42,8 @@ pub fn executable_path() -> String {
 //Get the full path to the terraform executable
 pub fn executable() -> String {
     let mut ext = "";
-    match std::env::consts::OS {
-        "windows" => {
-            ext = ".exe";
-        },
-        _ => {}
+    if std::env::consts::OS == "windows" {
+        ext = ".exe";
     }
     return format!("{}/{}{}",executable_path(),EXECUTABLE_NAME,ext);
 }
@@ -76,34 +74,46 @@ pub struct ExecutorOptions {
 //Dir configs for the terraform module
 pub struct Workspace {
     dir: String,
-    initialized: bool
+    initialized: bool,
+    existing: bool,
 }
 
 //TODO: error handling
 //Create the workspace, either uuid or static dir
-fn create_workspace(static_workspace:bool) -> String{
+fn create_workspace(static_workspace:bool) -> (String, bool){
 
     let uuid = Uuid::new_v4();
     let workspace: String = if !static_workspace { uuid.to_string() } else { WORKSPACE_DIR.to_string() };
     let dir = format!("{}/{}", executable_path().as_str(), workspace);
-    match fs::create_dir(dir.clone()){
-        Ok(()) => {
-            println!("Using workspace: {}",dir.clone() );
-        },
-        Err(e) => {}
+    if let Ok(metadata) = fs::metadata(dir.clone()) {
+        if metadata.is_dir() {
+            warn!("workspace: workspace \"{}\" exists.", dir);
+            return (dir, true);
+        }else {
+            match fs::create_dir(dir.clone()){
+                Ok(()) => {
+                    info!("workspace: using \"{}\" as current workspace.", dir)
+                },
+                Err(e) => {
+                    error!("workspace: failed to create workspace at \"{}\", error: {}", dir, e)
+                }
+            }
+        }
     }
-    return dir.clone();
+
+    return (dir, false);
 }
 
 impl Executor {
 
     //Return new executor with base
     pub fn new(options: ExecutorOptions) -> Executor {
-        let workspace = create_workspace(options.static_workspace);
+        let (workspace, existing) = create_workspace(options.static_workspace);
         return Executor{
             workspace: Workspace{
                 dir: workspace,
                 initialized: false,
+                existing,
             },
             inputs: HashMap::new(),
             current_op: "".to_string(),
@@ -122,9 +132,9 @@ impl Executor {
 
         let ex = executable();
 
-        println!("Using executable at: {}", ex );
-        println!("Using workspace at: {}", self.workspace.dir.clone() );
-        println!("Using args: {:?}", args);
+        info!("terraform: using executable at \"{}\"", ex);
+        info!("terraform: using workspace at \"{}\"", self.workspace.dir.clone());
+        info!("terraform: using args: {:?}", args);
 
         let output = Command::new(ex)
                                 .current_dir(self.workspace.dir.clone().as_str())
@@ -134,7 +144,7 @@ impl Executor {
         // println!("{:?}", output);
         if !output.status.success() {
             let e = String::from_utf8_lossy(&output.stderr);
-            eprintln!("Error: {}", e);
+            error!("terraform: error occurred during command execution {}", e);
             return Err(e.to_string());
         }
 
@@ -168,12 +178,11 @@ impl Executor {
             _ => {}
         }
 
-        return inputs
+        return inputs;
     }
 
     //Generate the options based on the main command
     fn generate_options(&mut self) -> Vec<String> {
-
         return vec![];
     }
 
@@ -201,7 +210,7 @@ impl Executor {
         args.extend(inputs);
         args.extend(flags);
         args.extend(opt);
-        return args
+        return args;
     }
 
     //terraform init
@@ -210,7 +219,11 @@ impl Executor {
         if self.workspace.initialized {
             return;
         }
-        self.run_command(vec![OPERATION_INIT.to_string(), format!("{}=git::{}", OPT_FROM_MODULE, source)]);
+        if self.workspace.existing {
+            self.run_command(vec![OPERATION_INIT.to_string()]);
+        }else {
+            self.run_command(vec![OPERATION_INIT.to_string(), format!("{}=git::{}", OPT_FROM_MODULE, source)]);
+        }
         self.workspace.initialized = true;
     }
 
@@ -225,7 +238,7 @@ impl Executor {
         self.current_op = OPERATION_OUTPUT.to_string();
         let args = self.build(OPERATION_OUTPUT.to_string());
         let output  = self.run_command(args)?;
-        let value: Value = serde_json::from_str(output.clone().as_str()).map_err(|e| e.to_string())?;
+        let value: Value = serde_json::from_str(output.as_str()).map_err(|e| e.to_string())?;
         return Ok(value);
     }
 }
