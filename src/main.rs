@@ -68,11 +68,13 @@ fn main() {
     });
 
     tfbin.init("https://github.com/ishansd94/terraform-sample-module");
-    // let mut inputs = HashMap::new();
-    // inputs.insert(String::from("str"), tf::InputValues::Str(String::from("bar")));
-    // let _ = tfbin.set_inputs(inputs);
-    // tfbin.apply();
-    // println!("{:?}", tfbin.output());
+    let mut inputs = HashMap::new();
+    inputs.insert(String::from("str"), tf::InputValues::Str(String::from("bar")));
+    let _ = tfbin.set_inputs(inputs);
+    tfbin.plan();
+    tfbin.apply();
+    println!("{:?}", tfbin.output());
+    tfbin.destroy();
 }
 
 

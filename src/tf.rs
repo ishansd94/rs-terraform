@@ -89,14 +89,14 @@ fn create_workspace(static_workspace:bool) -> (String, bool){
         if metadata.is_dir() {
             warn!("workspace: workspace \"{}\" exists.", dir);
             return (dir, true);
-        }else {
-            match fs::create_dir(dir.clone()){
-                Ok(()) => {
-                    info!("workspace: using \"{}\" as current workspace.", dir)
-                },
-                Err(e) => {
-                    error!("workspace: failed to create workspace at \"{}\", error: {}", dir, e)
-                }
+        }
+    }else {
+        match fs::create_dir(dir.clone()){
+            Ok(()) => {
+                info!("workspace: using \"{}\" as current workspace.", dir)
+            },
+            Err(e) => {
+                error!("workspace: failed to create workspace at \"{}\", error: {}", dir, e)
             }
         }
     }
@@ -191,7 +191,7 @@ impl Executor {
 
         let mut flags = vec![];
         match self.current_op.as_str() {
-            OPERATION_APPLY|OPERATION_PLAN|OPERATION_DESTROY|OPERATION_REFRESH => {
+            OPERATION_APPLY|OPERATION_DESTROY|OPERATION_REFRESH => {
                 flags.push(FLAG_AUTO_APPROVE.to_string())
             }
             OPERATION_OUTPUT => {
@@ -227,10 +227,24 @@ impl Executor {
         self.workspace.initialized = true;
     }
 
+    //terraform plan
+    pub fn plan(&mut self) {
+        self.current_op = OPERATION_PLAN.to_string();
+        let args = self.build(OPERATION_PLAN.to_string());
+        self.run_command(args);
+    }
+
     //terraform apply
     pub fn apply(&mut self) {
         self.current_op = OPERATION_APPLY.to_string();
         let args = self.build(OPERATION_APPLY.to_string());
+        self.run_command(args);
+    }
+
+    //terraform destroy
+    pub fn destroy(&mut self) {
+        self.current_op = OPERATION_DESTROY.to_string();
+        let args = self.build(OPERATION_DESTROY.to_string());
         self.run_command(args);
     }
 
